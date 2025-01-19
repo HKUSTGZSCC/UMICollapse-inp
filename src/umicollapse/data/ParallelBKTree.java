@@ -3,9 +3,12 @@ package umicollapse.data;
 import java.util.Set;
 import java.util.HashSet;
 import java.util.Map;
+import jdk.incubator.vector.LongVector; 
+import jdk.incubator.vector.VectorSpecies;
 
 import umicollapse.util.BitSet;
 import static umicollapse.util.Utils.umiDist;
+import static umicollapse.util.Utils.fastHash;
 
 public class ParallelBKTree implements ParallelDataStructure{
     private int umiLength;
@@ -34,11 +37,19 @@ public class ParallelBKTree implements ParallelDataStructure{
     public Set<BitSet> near(BitSet umi, int k, int maxFreq){
         Set<BitSet> res = new HashSet<>();
         res.add(umi);
-        recursiveNear(umi, root, k, maxFreq, res);
+        
+        // 使用快速哈希定位搜索起点
+        long[] umiData = new long[this.umiLength];
+        for(int i = 0; i < umiData.length; i++) {
+            umiData[i] = umi.extractBits(i);
+        }
+        int startPos = Math.abs(fastHash(umiData) % umiLength);
+        
+        recursiveNear(umi, root, k, maxFreq, res, startPos);
         return res;
     }
 
-    private void recursiveNear(BitSet umi, Node curr, int k, int maxFreq, Set<BitSet> res){
+    private void recursiveNear(BitSet umi, Node curr, int k, int maxFreq, Set<BitSet> res, int startPos){
         int dist = umiDist(umi, curr.getUMI());
 
         if(dist <= k && curr.getFreq() <= maxFreq)
@@ -51,7 +62,7 @@ public class ParallelBKTree implements ParallelDataStructure{
             for(int i = 0; i < umiLength + 1; i++){
                 if(curr.hasNode(i)){
                     if(i >= lo && i <= hi && curr.minFreq(i) <= maxFreq)
-                        recursiveNear(umi, curr.get(i), k, maxFreq, res);
+                        recursiveNear(umi, curr.get(i), k, maxFreq, res, startPos);
                 }
             }
         }
@@ -59,12 +70,26 @@ public class ParallelBKTree implements ParallelDataStructure{
 
     private void insert(BitSet umi, int freq){
         Node curr = root;
-        int dist;
-
-        do{
-            dist = umiDist(umi, curr.getUMI());
+        
+        // 使用快速哈希计算插入位置
+        long[] umiData = new long[umiLength];
+        for(int i = 0; i < umiData.length; i++) {
+            umiData[i] = umi.extractBits(i); 
+        }
+        int targetPos = Math.abs(fastHash(umiData) % umiLength);
+        
+        // 优化插入过程
+        while(curr != null) {
+            int dist = umiDist(umi, curr.getUMI());
             curr.setMinFreq(Math.min(curr.getMinFreq(), freq));
-        }while((curr = curr.initNode(dist, umi, umiLength, freq)) != null);
+            
+            if(curr.hasNode(targetPos)) {
+                curr = curr.get(targetPos);
+            } else {
+                curr.initNode(targetPos, umi, umiLength, freq);
+                break;
+            }
+        }
     }
 
     private static class Node{

@@ -122,4 +122,32 @@ public class Utils {
 
         return new String(res);
     }
+
+    // 快速哈希计算
+    public static int fastHash(long[] data) {
+        if (data.length == 0) return 0;
+        
+        // 使用SIMD向量化
+        long h = 0x811C9DC5L;
+        int i = 0;
+        
+        for (; i <= data.length - VECTOR_LENGTH; i += VECTOR_LENGTH) {
+            LongVector v = LongVector.fromArray(SPECIES, data, i);
+            LongVector hv = LongVector.broadcast(SPECIES, h);
+            
+            // 向量化FNV-1a哈希
+            hv = hv.lanewise(VectorOperators.XOR, v)
+                  .lanewise(VectorOperators.MUL, 0x01000193L);
+            
+            h = hv.reduceLanes(VectorOperators.XOR);
+        }
+        
+        // 处理剩余元素
+        for (; i < data.length; i++) {
+            h ^= data[i];
+            h *= 0x01000193L;
+        }
+        
+        return (int)(h ^ (h >>> 32));
+    }
 }

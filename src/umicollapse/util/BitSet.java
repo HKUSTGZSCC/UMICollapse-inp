@@ -4,9 +4,12 @@ import java.util.Arrays;
 import jdk.incubator.vector.LongVector;
 import jdk.incubator.vector.VectorSpecies;
 import jdk.incubator.vector.VectorOperators;
+import java.util.stream.IntStream;
 
 public class BitSet implements Comparable{
     private static final int CHUNK_SIZE = 64;
+    private static final VectorSpecies<Long> SPECIES = LongVector.SPECIES_PREFERRED;
+    private static final int VECTOR_LENGTH = SPECIES.length();
 
     private long[] bits;
     private long[] nBits;
@@ -134,9 +137,25 @@ public class BitSet implements Comparable{
     public int hashCode(){
         if(recalcHash){
             long h = 1234L; // same as Java's built-in BitSet hash function
+            int i = 0;
 
-            for(int i = bits.length; --i >= 0;)
+            // 向量化处理
+            for (; i <= bits.length - VECTOR_LENGTH; i += VECTOR_LENGTH) {
+                LongVector v = LongVector.fromArray(SPECIES, bits, i);
+                LongVector multiplier = LongVector.fromArray(SPECIES, 
+                    IntStream.range(i, i + VECTOR_LENGTH)
+                            .mapToLong(j -> j + 1L)
+                            .toArray(), 0);
+                
+                // 向量化乘法和异或
+                LongVector product = v.mul(multiplier);
+                h ^= product.reduceLanes(VectorOperators.XOR);
+            }
+            
+            // 处理剩余元素
+            for (; i < bits.length; i++) {
                 h ^= bits[i] * (i + 1L);
+            }
 
             hash = (int)((h >> 32) ^ h);
             recalcHash = false;

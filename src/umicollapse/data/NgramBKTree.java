@@ -196,11 +196,21 @@ public class NgramBKTree implements DataStructure{
             this.lo = lo;
             this.hi = hi;
 
-            for(int i = 0; i < hi - lo + 1; i++)
-                hash = hash * HASH_CONST + get(i);
-
-            hash = hash * HASH_CONST + lo;
-            hash = hash * HASH_CONST + hi;
+            // 使用快速哈希算法
+            long h = 0x811C9DC5L; // FNV-1a哈希初始值
+            
+            for (int i = 0; i < hi - lo + 1; i++) {
+                h ^= get(i);
+                h *= 0x01000193L; // FNV质数
+            }
+            
+            h ^= lo;
+            h *= 0x01000193L;
+            
+            h ^= hi;
+            h *= 0x01000193L;
+            
+            hash = (int)(h ^ (h >>> 32));
         }
 
         int get(int i){
