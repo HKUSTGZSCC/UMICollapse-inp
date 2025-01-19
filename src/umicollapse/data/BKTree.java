@@ -103,14 +103,18 @@ public class BKTree implements DataStructure{
     }
 
     private double[] depth(Node curr) {
-        // 使用快速哈希代替原有的递归深度计算
+        int numLongs = (umiLength + 63) / 64;
         long[] nodeData = new long[curr.c != null ? curr.c.length : 0];
         int idx = 0;
         
         if(curr.c != null) {
             for(Node n : curr.c) {
                 if(n != null) {
-                    nodeData[idx++] = fastHash(new long[]{n.umi.extractBits(0)});
+                    long[] umiBits = new long[numLongs];
+                    for(int i = 0; i < numLongs; i++) {
+                        umiBits[i] = n.umi.extractBits(i);
+                    }
+                    nodeData[idx++] = fastHash(umiBits);
                 }
             }
         }

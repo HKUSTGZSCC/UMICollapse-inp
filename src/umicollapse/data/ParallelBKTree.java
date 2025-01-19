@@ -38,9 +38,10 @@ public class ParallelBKTree implements ParallelDataStructure{
         Set<BitSet> res = new HashSet<>();
         res.add(umi);
         
-        // 使用快速哈希定位搜索起点
-        long[] umiData = new long[this.umiLength];
-        for(int i = 0; i < umiData.length; i++) {
+        // 修改:使用正确的长度计算
+        int numLongs = (umiLength + 63) / 64; // 向上取整到64位边界
+        long[] umiData = new long[numLongs];
+        for(int i = 0; i < numLongs; i++) {
             umiData[i] = umi.extractBits(i);
         }
         int startPos = Math.abs(fastHash(umiData) % umiLength);
@@ -71,9 +72,10 @@ public class ParallelBKTree implements ParallelDataStructure{
     private void insert(BitSet umi, int freq){
         Node curr = root;
         
-        // 使用快速哈希计算插入位置
-        long[] umiData = new long[umiLength];
-        for(int i = 0; i < umiData.length; i++) {
+        // 同样修改这里的长度计算
+        int numLongs = (umiLength + 63) / 64;
+        long[] umiData = new long[numLongs];
+        for(int i = 0; i < numLongs; i++) {
             umiData[i] = umi.extractBits(i); 
         }
         int targetPos = Math.abs(fastHash(umiData) % umiLength);

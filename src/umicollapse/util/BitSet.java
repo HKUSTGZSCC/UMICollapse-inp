@@ -202,6 +202,9 @@ public class BitSet implements Comparable{
     }
 
     public long extractBits(int chunkIdx) {
+        if(chunkIdx < 0 || chunkIdx >= bits.length) {
+            return 0L; // 越界时返回0
+        }
         return bits[chunkIdx];
     }
 }
