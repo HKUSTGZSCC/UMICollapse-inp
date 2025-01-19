@@ -1,6 +1,7 @@
 package umicollapse.util;
 
 import java.util.Arrays;
+import java.nio.ByteBuffer;
 
 import htsjdk.samtools.fastq.FastqRecord;
 
@@ -8,36 +9,82 @@ import static umicollapse.util.Utils.toBitSet;
 import static umicollapse.util.Utils.toPhred33ByteArray;
 import static umicollapse.util.Utils.toPhred33String;
 
+import jdk.incubator.vector.ByteVector;
+import jdk.incubator.vector.VectorMask;
+import jdk.incubator.vector.VectorOperators;
+
 public class FASTQRead extends Read{
     private String desc;
     private BitSet seq;
-    private byte[] qual;
-    private int avgQual;
+    private volatile byte[] qual;
+    private ByteBuffer qualBuffer;
+    private volatile int avgQual = -1;
+    private String cacheKey;
 
     public FASTQRead(String desc, String umi, String seq, String qual){
         this.desc = desc;
         this.seq = toBitSet(umi.toUpperCase() + seq.toUpperCase());
-        this.qual = toPhred33ByteArray(qual);
-
-        float avg = 0.0f;
-
-        for(byte b : this.qual)
-            avg += b;
-
-        this.avgQual = (int)(avg / this.qual.length);
+        this.cacheKey = qual;
+        
+        if (!quickIOEnabled) {
+            lazyLoad();
+            isLoaded = true;
+        }
     }
 
-    public FASTQRead(String desc, String umiAndSeq, String qual){
-        this.desc = desc;
-        this.seq = toBitSet(umiAndSeq.toUpperCase());
-        this.qual = toPhred33ByteArray(qual);
+    public FASTQRead(String desc, String seq, String qual) {
+        this(desc, "", seq, qual);
+    }
 
-        float avg = 0.0f;
+    @Override
+    protected void lazyLoad() {
+        if (quickIOEnabled) {
+            qual = qualityCache.computeIfAbsent(cacheKey, k -> {
+                ByteBuffer buf = ByteBufferPool.acquire();
+                byte[] result = toPhred33ByteArray(k);
+                buf.put(result);
+                buf.flip();
+                qualBuffer = buf;
+                return result;
+            });
+        } else {
+            qual = toPhred33ByteArray(cacheKey);
+        }
+        calculateAvgQual();
+    }
 
-        for(byte b : this.qual)
-            avg += b;
-
-        this.avgQual = (int)(avg / this.qual.length);
+    private void calculateAvgQual() {
+        if (avgQual != -1) return;
+        
+        if (quickIOEnabled) {
+            int length = qual.length;
+            int sum = 0;
+            int i = 0;
+            
+            // 使用SIMD向量化计算
+            int upperBound = SPECIES.loopBound(length);
+            ByteVector acc = ByteVector.zero(SPECIES);
+            
+            for (; i < upperBound; i += SPECIES.length()) {
+                ByteVector v = ByteVector.fromArray(SPECIES, qual, i);
+                acc = acc.add(v);
+            }
+            
+            sum = acc.reduceLanes(VectorOperators.ADD);
+            
+            // 处理剩余元素
+            for (; i < length; i++) {
+                sum += qual[i];
+            }
+            
+            avgQual = sum / length;
+        } else {
+            float avg = 0.0f;
+            for (byte b : qual) {
+                avg += b;
+            }
+            avgQual = (int)(avg / qual.length);
+        }
     }
 
     @Override

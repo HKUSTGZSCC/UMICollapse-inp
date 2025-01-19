@@ -11,6 +11,7 @@ import java.io.File;
 import umicollapse.data.*;
 import umicollapse.merge.*;
 import umicollapse.algo.*;
+import umicollapse.util.Read;  // 添加这行导入
 
 public class Main{
     public static void main(String[] args){
@@ -91,6 +92,8 @@ public class Main{
         boolean keepUnmapped = false;
 
         boolean trackClusters = false;
+
+        boolean quickIO = false;
 
         String s = "-k";
 
@@ -187,6 +190,12 @@ public class Main{
         if(m.containsKey(s))
             trackClusters = true;
 
+        s = "--quick-io";
+        if (m.containsKey(s)) {
+            quickIO = true;
+            Read.setQuickIOMode(true);
+        }
+
         if(trackClusters && twoPass)
             throw new UnsupportedOperationException("Cannot track clusters with the two pass algorithm!");
 
@@ -211,7 +220,8 @@ public class Main{
 
         if(mode.equals("fastq")){
             DeduplicateFASTQ dedup = new DeduplicateFASTQ();
-            dedup.deduplicateAndMerge(in, out, a, d, mAlgo, umiLength, k, percentage, parallelAlign, trackClusters);
+            dedup.deduplicateAndMerge(in, out, a, d, mAlgo, umiLength, k, percentage, 
+                parallelAlign || quickIO, trackClusters);
         }else if(mode.equals("bam") || mode.equals("sam")){
             DeduplicateSAM dedup = new DeduplicateSAM();
 
