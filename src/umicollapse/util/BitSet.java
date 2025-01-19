@@ -175,4 +175,14 @@ public class BitSet implements Comparable{
 
         return new String(res);
     }
+
+    public void applyEncodingMask(int chunkIdx, long maskClear, long maskSet) {
+        recalcHash = true;
+        bits[chunkIdx] &= maskClear;
+        bits[chunkIdx] |= maskSet;
+    }
+
+    public long extractBits(int chunkIdx) {
+        return bits[chunkIdx];
+    }
 }
