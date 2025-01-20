@@ -2,3 +2,5 @@ lib/
 bin/
 *.bam
 /*.txt
+/build.sh
+/run.sh
