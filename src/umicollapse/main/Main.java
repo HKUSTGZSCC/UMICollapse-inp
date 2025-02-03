@@ -196,6 +196,10 @@ public class Main{
             Read.setQuickIOMode(true);
         }
 
+        s = "--cache";
+        if(m.containsKey(s))
+            System.setProperty("CACHE", "true");
+
         if(trackClusters && twoPass)
             throw new UnsupportedOperationException("Cannot track clusters with the two pass algorithm!");
 

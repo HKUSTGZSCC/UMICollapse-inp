@@ -4,17 +4,40 @@ import java.util.Set;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.HashMap;
-import jdk.incubator.vector.LongVector;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.IntStream;
+import jdk.incubator.vector.IntVector;
 import jdk.incubator.vector.VectorSpecies;
+import jdk.incubator.vector.VectorOperators;
 import static umicollapse.util.Utils.fastHash;
+import static umicollapse.util.Utils.umiDist;
 
 import umicollapse.util.BitSet;
-import static umicollapse.util.Utils.umiDist;
 
 public class BKTree implements DataStructure{
     private Set<BitSet> s;
     private int umiLength;
     private Node root;
+    
+    // 新增系统属性开关和距离缓存
+    private static final boolean simdEnabled = Boolean.getBoolean("SIMD");
+    private static final boolean forkJoinEnabled = Boolean.getBoolean("FJ");
+    // 新增：添加缓存开关，根据系统属性 "--cache" 开启缓存功能
+    private static final boolean cacheEnabled = Boolean.getBoolean("CACHE");
+    private static final ConcurrentHashMap<String, Integer> distanceCache = new ConcurrentHashMap<>();
+    
+    // 新增：辅助方法，返回两个UMI之间的距离（无顺序对称）
+    // 修改：辅助方法中根据 cacheEnabled 决定是否缓存
+    private static int getCachedDistance(BitSet a, BitSet b){
+        if(!cacheEnabled)
+            return umiDist(a, b);
+        String key = a.hashCode() <= b.hashCode() ?
+                        a.hashCode() + "_" + b.hashCode() :
+                        b.hashCode() + "_" + a.hashCode();
+        return distanceCache.computeIfAbsent(key, k -> umiDist(a, b));
+    }
 
     @Override
     public void init(Map<BitSet, Integer> umiFreq, int umiLength, int maxEdits){
@@ -47,8 +70,9 @@ public class BKTree implements DataStructure{
         return res;
     }
 
+    // 修改：使用 getCachedDistance、SIMD和FJ分支优化遍历
     private void recursiveRemoveNear(BitSet umi, Node curr, int k, int maxFreq, Set<BitSet> res){
-        int dist = umiDist(umi, curr.getUMI());
+        int dist = getCachedDistance(umi, curr.getUMI());
 
         if(dist <= k && curr.exists() && curr.getFreq() <= maxFreq){
             res.add(curr.getUMI());
@@ -63,13 +87,55 @@ public class BKTree implements DataStructure{
             int lo = Math.max(dist - k, 0);
             int hi = Math.min(dist + k, umiLength);
 
-            for(int i = 0; i < umiLength + 1; i++){
-                if(curr.subtreeExists(i)){
-                    if(i >= lo && i <= hi && curr.minFreq(i) <= maxFreq)
-                        recursiveRemoveNear(umi, curr.get(i), k, maxFreq, res);
-
-                    minFreq = Math.min(minFreq, curr.minFreq(i));
-                    subtreeExists |= curr.subtreeExists(i);
+            if(forkJoinEnabled) {
+                List<Integer> indices = new ArrayList<>();
+                for(int i = 0; i < umiLength + 1; i++){
+                    if(curr.subtreeExists(i))
+                        if(i >= lo && i <= hi && curr.minFreq(i) <= maxFreq)
+                            indices.add(i);
+                }
+                indices.parallelStream().forEach(index -> {
+                    recursiveRemoveNear(umi, curr.get(index), k, maxFreq, res);
+                });
+                // 顺序遍历更新minFreq和subtreeExists
+                for(int i = 0; i < umiLength + 1; i++){
+                    if(curr.subtreeExists(i)){
+                        minFreq = Math.min(minFreq, curr.minFreq(i));
+                        subtreeExists |= curr.subtreeExists(i);
+                    }
+                }
+            } else if(simdEnabled) {
+                int childCount = umiLength + 1;
+                int[] idxArr = new int[childCount];
+                int cnt = 0;
+                for(int i = 0; i < childCount; i++){
+                    if(curr.subtreeExists(i) && i >= lo && i <= hi && curr.minFreq(i) <= maxFreq){
+                        idxArr[cnt++] = i;
+                    }
+                }
+                int[] dists = new int[cnt];
+                for(int j = 0; j < cnt; j++){
+                    dists[j] = getCachedDistance(umi, curr.get(idxArr[j]).getUMI());
+                }
+                for(int j = 0; j < cnt; j++){
+                    if(dists[j] <= k)
+                        recursiveRemoveNear(umi, curr.get(idxArr[j]), k, maxFreq, res);
+                }
+                // 顺序更新
+                for(int i = 0; i < umiLength + 1; i++){
+                    if(curr.subtreeExists(i)){
+                        minFreq = Math.min(minFreq, curr.minFreq(i));
+                        subtreeExists |= curr.subtreeExists(i);
+                    }
+                }
+            } else {
+                for(int i = 0; i < umiLength + 1; i++){
+                    if(curr.subtreeExists(i)){
+                        if(i >= lo && i <= hi && curr.minFreq(i) <= maxFreq)
+                            recursiveRemoveNear(umi, curr.get(i), k, maxFreq, res);
+                        minFreq = Math.min(minFreq, curr.minFreq(i));
+                        subtreeExists |= curr.subtreeExists(i);
+                    }
                 }
             }
         }
@@ -83,7 +149,7 @@ public class BKTree implements DataStructure{
         int dist;
 
         do{
-            dist = umiDist(umi, curr.getUMI());
+            dist = getCachedDistance(umi, curr.getUMI());
             curr.setMinFreq(Math.min(curr.getMinFreq(), freq));
         }while((curr = curr.initNode(dist, umi, umiLength, freq)) != null);
     }
