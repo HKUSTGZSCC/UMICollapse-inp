@@ -3,12 +3,9 @@ package umicollapse.data;
 import java.util.Set;
 import java.util.HashSet;
 import java.util.Map;
-import jdk.incubator.vector.LongVector; 
-import jdk.incubator.vector.VectorSpecies;
 
 import umicollapse.util.BitSet;
 import static umicollapse.util.Utils.umiDist;
-import static umicollapse.util.Utils.fastHash;
 
 public class ParallelBKTree implements ParallelDataStructure{
     private int umiLength;
@@ -37,20 +34,11 @@ public class ParallelBKTree implements ParallelDataStructure{
     public Set<BitSet> near(BitSet umi, int k, int maxFreq){
         Set<BitSet> res = new HashSet<>();
         res.add(umi);
-        
-        // 修改:使用正确的长度计算
-        int numLongs = (umiLength + 63) / 64; // 向上取整到64位边界
-        long[] umiData = new long[numLongs];
-        for(int i = 0; i < numLongs; i++) {
-            umiData[i] = umi.extractBits(i);
-        }
-        int startPos = Math.abs(fastHash(umiData) % umiLength);
-        
-        recursiveNear(umi, root, k, maxFreq, res, startPos);
+        recursiveNear(umi, root, k, maxFreq, res);
         return res;
     }
 
-    private void recursiveNear(BitSet umi, Node curr, int k, int maxFreq, Set<BitSet> res, int startPos){
+    private void recursiveNear(BitSet umi, Node curr, int k, int maxFreq, Set<BitSet> res){
         int dist = umiDist(umi, curr.getUMI());
 
         if(dist <= k && curr.getFreq() <= maxFreq)
@@ -63,7 +51,7 @@ public class ParallelBKTree implements ParallelDataStructure{
             for(int i = 0; i < umiLength + 1; i++){
                 if(curr.hasNode(i)){
                     if(i >= lo && i <= hi && curr.minFreq(i) <= maxFreq)
-                        recursiveNear(umi, curr.get(i), k, maxFreq, res, startPos);
+                        recursiveNear(umi, curr.get(i), k, maxFreq, res);
                 }
             }
         }
@@ -71,27 +59,12 @@ public class ParallelBKTree implements ParallelDataStructure{
 
     private void insert(BitSet umi, int freq){
         Node curr = root;
-        
-        // 同样修改这里的长度计算
-        int numLongs = (umiLength + 63) / 64;
-        long[] umiData = new long[numLongs];
-        for(int i = 0; i < numLongs; i++) {
-            umiData[i] = umi.extractBits(i); 
-        }
-        int targetPos = Math.abs(fastHash(umiData) % umiLength);
-        
-        // 优化插入过程
-        while(curr != null) {
-            int dist = umiDist(umi, curr.getUMI());
+        int dist;
+
+        do{
+            dist = umiDist(umi, curr.getUMI());
             curr.setMinFreq(Math.min(curr.getMinFreq(), freq));
-            
-            if(curr.hasNode(targetPos)) {
-                curr = curr.get(targetPos);
-            } else {
-                curr.initNode(targetPos, umi, umiLength, freq);
-                break;
-            }
-        }
+        }while((curr = curr.initNode(dist, umi, umiLength, freq)) != null);
     }
 
     private static class Node{
