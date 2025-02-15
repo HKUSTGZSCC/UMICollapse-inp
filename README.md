@@ -1,4 +1,4 @@
-# UMICollapse
+# UMICollapse-inp
 
 Accelerating the deduplication and collapsing process for reads with Unique Molecular Identifiers (UMI).
 
