@@ -52,9 +52,15 @@ public class SAMRead extends Read{
         if (quickIOEnabled) {
             byte[] quals = record.getBaseQualities();
             if (quals.length > 0) {
-                qualBuffer = ByteBufferPool.acquire();
-                qualBuffer.put(quals);
-                qualBuffer.flip();
+                try {
+                    qualBuffer = ByteBufferPool.acquire();
+                    qualBuffer.put(quals);
+                    qualBuffer.flip();
+                } catch (OutOfMemoryError e) {
+                    // 如果无法获取新的ByteBuffer，回退到普通模式
+                    qualBuffer = null;
+                    calculateAvgQual();
+                }
             }
         }
         calculateAvgQual();
@@ -110,5 +116,15 @@ public class SAMRead extends Read{
 
     public SAMRecord toSAMRecord(){
         return record;
+    }
+
+    // 删除已弃用的finalize()方法
+    
+    // 提供显式清理方法
+    public void cleanup() {
+        if (qualBuffer != null) {
+            ByteBufferPool.release(qualBuffer);
+            qualBuffer = null;
+        }
     }
 }
