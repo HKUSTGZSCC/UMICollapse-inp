@@ -50,47 +50,46 @@ public class SAMRead extends Read{
     @Override
     protected void lazyLoad() {
         if (quickIOEnabled) {
-            qualBuffer = ByteBufferPool.acquire();
-            qualBuffer.put(record.getBaseQualities());
-            qualBuffer.flip();
+            byte[] quals = record.getBaseQualities();
+            if (quals.length > 0) {
+                qualBuffer = ByteBufferPool.acquire();
+                qualBuffer.put(quals);
+                qualBuffer.flip();
+            }
         }
         calculateAvgQual();
     }
 
     private void calculateAvgQual() {
-        if (avgQual != -1) return;
-        
-        byte[] quals = quickIOEnabled ? qualBuffer.array() : record.getBaseQualities();
-        int length = quals.length;
+        byte[] quals;
+        int len;
         
         if (quickIOEnabled) {
-            int sum = 0;
-            int i = 0;
-            
-            // 使用SIMD向量化计算
-            int upperBound = SPECIES.loopBound(length);
-            ByteVector acc = ByteVector.zero(SPECIES);
-            
-            for (; i < upperBound; i += SPECIES.length()) {
-                ByteVector v = ByteVector.fromArray(SPECIES, quals, i);
-                acc = acc.add(v);
+            if (qualBuffer == null || !qualBuffer.hasRemaining()) {
+                avgQual = 0;
+                return;
             }
-            
-            sum = acc.reduceLanes(VectorOperators.ADD);
-            
-            // 处理剩余元素
-            for (; i < length; i++) {
-                sum += quals[i];
+            len = qualBuffer.remaining();
+            quals = new byte[len];
+            int pos = qualBuffer.position();
+            for (int i = 0; i < len; i++) {
+                quals[i] = qualBuffer.get(pos + i);
             }
-            
-            avgQual = sum / length;
         } else {
-            float avg = 0.0f;
-            for (byte b : quals) {
-                avg += b;
+            quals = record.getBaseQualities();
+            len = quals.length;
+            if (len == 0) {
+                avgQual = 0;
+                return;
             }
-            avgQual = (int)(avg / length);
         }
+        
+        long sum = 0;
+        for (int i = 0; i < len; i++) {
+            sum += quals[i];
+        }
+        
+        avgQual = (int)(sum / len);
     }
 
     @Override
